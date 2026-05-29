@@ -111,11 +111,23 @@ export default function App() {
     const targetDt = dateStr.replace(/-/g, "");
     
     try {
-      const response = await fetch(`/api/boxoffice?date=${targetDt}`);
-      if (!response.ok) {
-        throw new Error("KOBIS 일일 박스오피스 데이터를 가져오는 데 실패했습니다.");
+      let data: BoxOfficeResponse;
+      try {
+        const response = await fetch(`/api/boxoffice?date=${targetDt}`);
+        if (!response.ok) {
+          throw new Error("Local backend proxy is unavailable on static frontend hosts.");
+        }
+        data = await response.json();
+      } catch (proxyErr) {
+        console.warn("Backend proxy offline or failed. Falling back to direct browser fetch for KOBIS daily box office:", proxyErr);
+        const apiKey = (import.meta as any).env.VITE_KOBIS_API_KEY || "0706c198f0f003e8338bd8d99bc4101e";
+        const directUrl = `https://kobis.or.kr/kobisopenapi/webservice/rest/boxoffice/searchDailyBoxOfficeList.json?key=${apiKey}&targetDt=${targetDt}`;
+        const directRes = await fetch(directUrl);
+        if (!directRes.ok) {
+          throw new Error("KOBIS 일일 박스오피스 데이터를 가져오는 데 실패했습니다. (Vercel 프록시 및 직접 통신 모두 실패)");
+        }
+        data = await directRes.json();
       }
-      const data: BoxOfficeResponse = await response.json();
       
       if (data.faultInfo) {
         throw new Error(data.faultInfo.message);

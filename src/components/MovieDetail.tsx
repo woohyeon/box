@@ -41,11 +41,24 @@ export default function MovieDetail({ movieCd, movieNm, isDark, onClose }: Movie
       setError(null);
       setActiveTab("info");
       try {
-        const response = await fetch(`/api/movieinfo?movieCd=${movieCd}`);
-        if (!response.ok) {
-          throw new Error("영화 상세 정보를 가져오는 데 실패했습니다.");
+        let data: MovieInfoResponse;
+        try {
+          const response = await fetch(`/api/movieinfo?movieCd=${movieCd}`);
+          if (!response.ok) {
+            throw new Error("Local backend proxy is unavailable on static frontend hosts.");
+          }
+          data = await response.json();
+        } catch (proxyErr) {
+          console.warn("Backend proxy offline or failed. Falling back to direct browser fetch for KOBIS movie info:", proxyErr);
+          const apiKey = (import.meta as any).env.VITE_KOBIS_API_KEY || "0706c198f0f003e8338bd8d99bc4101e";
+          const directUrl = `https://www.kobis.or.kr/kobisopenapi/webservice/rest/movie/searchMovieInfo.json?key=${apiKey}&movieCd=${movieCd}`;
+          const directRes = await fetch(directUrl);
+          if (!directRes.ok) {
+            throw new Error("영화 상세 정보를 가져오는 데 실패했습니다. (Vercel 프록시 및 직접 통신 모두 실패)");
+          }
+          data = await directRes.json();
         }
-        const data: MovieInfoResponse = await response.json();
+
         if (data.faultInfo) {
           throw new Error(data.faultInfo.message);
         }
