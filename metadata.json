@@ -1,0 +1,8 @@
+{
+  "name": "KOBIS Box Office Hub",
+  "description": "An elegant, interactive Korean Box Office viewer supporting date-based queries, detailed movie search, and dark/light view modes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
