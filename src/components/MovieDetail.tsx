@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MovieInfo, MovieInfoResponse } from "../types";
 import { 
   Film, Clock, Calendar, Globe, Tag, Shield, 
-  Users, Building, Loader2, Info, X, Trophy
+  Users, Building, Loader2, Info, X, Trophy, Sparkles, MessageSquare, Send
 } from "lucide-react";
 
 interface MovieDetailProps {
@@ -16,13 +16,25 @@ export default function MovieDetail({ movieCd, movieNm, isDark, onClose }: Movie
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [movieInfo, setMovieInfo] = useState<MovieInfo | null>(null);
-  const [activeTab, setActiveTab ] = useState<"info" | "cast" | "company">("info");
+  const [activeTab, setActiveTab ] = useState<"info" | "cast" | "company" | "ai_review">("info");
+  
+  // States for Gemini Review generator
+  const [keywords, setKeywords] = useState<string[]>(["", "", ""]);
+  const [reviewResult, setReviewResult] = useState<string>("");
+  const [generating, setGenerating] = useState<boolean>(false);
+  const [genError, setGenError ] = useState<string | null>(null);
 
   useEffect(() => {
     if (!movieCd) {
       setMovieInfo(null);
       return;
     }
+
+    // Reset AI review inputs and results on movie selection change
+    setKeywords(["", "", ""]);
+    setReviewResult("");
+    setGenError(null);
+    setGenerating(false);
 
     const fetchMovieDetail = async () => {
       setLoading(true);
@@ -51,6 +63,51 @@ export default function MovieDetail({ movieCd, movieNm, isDark, onClose }: Movie
 
     fetchMovieDetail();
   }, [movieCd]);
+
+  const handleKeywordChange = (idx: number, val: string) => {
+    const updated = [...keywords];
+    updated[idx] = val;
+    setKeywords(updated);
+  };
+
+  const handleGenerateReview = async () => {
+    const trimmed = keywords.map(k => k.trim());
+    if (trimmed.some(k => k === "")) {
+      setGenError("감상평 제작을 위해 3개의 키워드를 빠짐없이 모두 작성해주세요.");
+      return;
+    }
+
+    setGenerating(true);
+    setGenError(null);
+    setReviewResult("");
+
+    try {
+      const response = await fetch("/api/review", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          movieNm,
+          keywords: trimmed,
+          genres: movieInfo?.genres?.map(g => g.genreNm).join(", ") || "종합",
+          nations: movieInfo?.nations?.map(n => n.nationNm).join(", ") || "한국/기타"
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "감상평 합성 과정 중 에러가 발생했습니다.");
+      }
+
+      const data = await response.json();
+      setReviewResult(data.review);
+    } catch (err: any) {
+      setGenError(err.message || "Gemini 호출 오류가 발생했습니다. 설정 상태 또는 네트워크를 다시 확인해 주세요.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   if (!movieCd) {
     return (
@@ -160,6 +217,18 @@ export default function MovieDetail({ movieCd, movieNm, isDark, onClose }: Movie
         >
           <Building className="w-4 h-4" />
           제작 및 배급사
+        </button>
+        <button
+          id="tab_ai_review"
+          onClick={() => setActiveTab("ai_review")}
+          className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-all ${
+            activeTab === "ai_review"
+              ? "border-amber-500 text-amber-500"
+              : `border-transparent ${isDark ? "text-zinc-400 hover:text-zinc-200" : "text-slate-500 hover:text-slate-800"}`
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-550" />
+          AI 감상평
         </button>
       </div>
 
@@ -401,6 +470,170 @@ export default function MovieDetail({ movieCd, movieNm, isDark, onClose }: Movie
                   <p className={`text-sm py-2 ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
                     등록된 관련 회사 정보가 없습니다.
                   </p>
+                )}
+              </div>
+            )}
+
+            {/* TAB 4: Gemini AI REVIEW GENERATOR */}
+            {activeTab === "ai_review" && (
+              <div className="space-y-5">
+                <div className={`p-4 rounded-xl border leading-relaxed ${
+                  isDark ? "bg-amber-950/10 border-amber-500/20 text-amber-200/90" : "bg-amber-50/55 border-amber-100 text-amber-850"
+                }`}>
+                  <h4 className="text-sm font-bold flex items-center gap-2 mb-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                    Gemini AI 맞춤 키워드 감상평 생성기
+                  </h4>
+                  <p className="text-xs">
+                    이 영화에 대해 작성하고 싶은 <strong>감상 키워드 3가지</strong>를 입력해 주시면, Gemini AI가 고품질의 창의적이고 수려한 전용 감상평을 작성해 드립니다.
+                  </p>
+                </div>
+
+                {/* Keyword Inputs */}
+                <div className="space-y-2.5">
+                  <span className={`text-xs font-bold tracking-wider block ${isDark ? "text-zinc-400" : "text-slate-500"}`}>
+                    감상평 핵심 키워드 지정 (3개 필수)
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <label htmlFor="kw_0" className="sr-only">키워드 1</label>
+                      <input
+                        id="kw_0"
+                        type="text"
+                        value={keywords[0]}
+                        onChange={(e) => handleKeywordChange(0, e.target.value)}
+                        placeholder="예: 전율돋는"
+                        maxLength={15}
+                        disabled={generating}
+                        className={`w-full text-xs font-semibold p-3.5 rounded-xl border focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all ${
+                          isDark ? "bg-zinc-950/40 border-zinc-800 text-white placeholder-zinc-600" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"
+                        }`}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="kw_1" className="sr-only">키워드 2</label>
+                      <input
+                        id="kw_1"
+                        type="text"
+                        value={keywords[1]}
+                        onChange={(e) => handleKeywordChange(1, e.target.value)}
+                        placeholder="예: 압도적인 스케일"
+                        maxLength={15}
+                        disabled={generating}
+                        className={`w-full text-xs font-semibold p-3.5 rounded-xl border focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all ${
+                          isDark ? "bg-zinc-950/40 border-zinc-800 text-white placeholder-zinc-600" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"
+                        }`}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="kw_2" className="sr-only">키워드 3</label>
+                      <input
+                        id="kw_2"
+                        type="text"
+                        value={keywords[2]}
+                        onChange={(e) => handleKeywordChange(2, e.target.value)}
+                        placeholder="예: 가족과 함께"
+                        maxLength={15}
+                        disabled={generating}
+                        className={`w-full text-xs font-semibold p-3.5 rounded-xl border focus:ring-1 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all ${
+                          isDark ? "bg-zinc-950/40 border-zinc-800 text-white placeholder-zinc-600" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"
+                        }`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Submit button */}
+                <button
+                  id="btn_generate_review"
+                  onClick={handleGenerateReview}
+                  disabled={generating || keywords.some(k => k.trim() === "")}
+                  className={`w-full font-bold text-sm py-3 px-5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                    generating || keywords.some(k => k.trim() === "")
+                      ? isDark 
+                        ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-white/5" 
+                        : "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-200"
+                      : isDark
+                        ? "bg-amber-500 hover:bg-amber-400 text-neutral-950 hover:shadow-[0_0_15px_rgba(245,158,11,0.25)]"
+                        : "bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
+                  }`}
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 className="w-4.5 h-4.5 animate-spin shrink-0" />
+                      감상평 작성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4.5 h-4.5 shrink-0" />
+                      추천 감상평 생성하기
+                    </>
+                  )}
+                </button>
+
+                {/* Error Banner */}
+                {genError && (
+                  <div className={`p-4 rounded-xl border flex gap-3 text-xs leading-relaxed ${
+                    isDark ? "bg-red-950/20 border-red-900/30 text-red-400" : "bg-red-50 border-red-105 text-red-700"
+                  }`}>
+                    <span className="font-bold select-none">⚠️</span>
+                    <div>
+                      <p className="font-bold mb-0.5">감상평 작성 실패</p>
+                      <p>{genError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Review Results */}
+                {generating && (
+                  <div className={`p-8 rounded-2xl border text-center border-dashed ${
+                    isDark ? "border-zinc-800 bg-zinc-950/45" : "border-slate-200 bg-slate-50/55"
+                  }`}>
+                    <Loader2 className="w-8 h-8 animate-spin text-amber-550 mx-auto mb-3" />
+                    <p className="text-sm font-bold mb-1">감상평 초안 작성 중</p>
+                    <p className={`text-xs ${isDark ? "text-zinc-500" : "text-slate-400"}`}>
+                      지정해주신 키워드와 영화 세부 특징들을 조합하여 수려한 문장을 작성 중입니다. 잠시만 기다려주세요!
+                    </p>
+                  </div>
+                )}
+
+                {reviewResult && (
+                  <div className="space-y-2.5">
+                    <span className={`text-xs font-bold tracking-wider block ${isDark ? "text-zinc-400" : "text-slate-500"}`}>
+                      생성된 AI 감상평 결과
+                    </span>
+                    <div className={`p-5 rounded-2xl border relative leading-relaxed overflow-hidden shadow-md whitespace-pre-line text-sm ${
+                      isDark 
+                        ? "bg-zinc-950/60 border-zinc-800 text-zinc-100" 
+                        : "bg-amber-50/10 border-slate-150 text-slate-800"
+                    }`}>
+                      {/* Stylized background quotes */}
+                      <div className="absolute -top-4 -right-2 text-[100px] font-serif select-none pointer-events-none leading-none opacity-5 text-amber-500">
+                        ”
+                      </div>
+                      <div className="relative z-10 font-medium">
+                        {reviewResult}
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-end">
+                      <button
+                        id="btn_copy_review"
+                        onClick={() => {
+                          navigator.clipboard.writeText(reviewResult);
+                          alert("감상평 내용이 클립보드에 복사되었습니다.");
+                        }}
+                        className={`text-xs font-bold py-2 px-3.5 rounded-lg border transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                          isDark 
+                            ? "border-zinc-800 hover:bg-zinc-800 text-zinc-300" 
+                            : "border-slate-200 hover:bg-slate-100 text-slate-650"
+                        }`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        감상평 복사하기
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
